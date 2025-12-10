@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   ArrowLeft, Mail, Phone, Calendar, MessageSquare, MoreHorizontal, 
   Edit3, Star, Clock, CheckCircle2, Building2, MapPin, Tag, Plus,
-  LayoutTemplate, Check, AlertCircle, PlayCircle
+  LayoutTemplate, Check, AlertCircle, PlayCircle, Filter, GitMerge, AlertTriangle
 } from 'lucide-react';
 import { Lead, Activity, PIPELINE_STAGES } from '../types';
 import { useCRM } from '../context/CRMContext';
@@ -13,32 +13,66 @@ interface LeadDetailProps {
 }
 
 const LeadDetail: React.FC<LeadDetailProps> = ({ lead, onBack }) => {
-  const { updateLead, addActivity, toggleLeadFollow, currentUser } = useCRM();
+  const { updateLead, addActivity, toggleLeadFollow, currentUser, findDuplicates, mergeLeads, moveLeadStage } = useCRM();
   const [activeTab, setActiveTab] = useState<'overview' | 'details' | 'activities' | 'rules' | 'json'>('overview');
   const [noteInput, setNoteInput] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(lead);
+  
+  // Module 6: Timeline Filters
+  const [timelineFilter, setTimelineFilter] = useState<'all' | 'communication' | 'system'>('all');
+
+  // Module 4: Duplicate Detection
+  const duplicates = useMemo(() => findDuplicates(lead), [lead]);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+
+  // Module 5: Stage Validation State
+  const [stageError, setStageError] = useState<string[] | null>(null);
 
   const handleSave = () => {
     updateLead(lead.id, editForm);
     setIsEditing(false);
   };
 
+  const handleStageClick = (stageId: string) => {
+    // Prevent moving to current or previous blindly (for demo logic, we allow moving back, but moving forward triggers validation)
+    const currentIdx = PIPELINE_STAGES.findIndex(s => s.id === lead.status);
+    const targetIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
+    
+    if (targetIdx === currentIdx) return;
+
+    const result = moveLeadStage(lead.id, stageId as any);
+    if (!result.success && result.missingFields) {
+      setStageError(result.missingFields);
+      setTimeout(() => setStageError(null), 5000);
+    }
+  };
+
   const handleAddNote = () => {
     if (!noteInput.trim()) return;
+    
+    // Module 6: Mention Parsing (Visual only for prototype)
+    const hasMention = noteInput.includes('@');
     
     const activity: Activity = {
       id: `act-${Date.now()}`,
       type: 'note',
-      description: noteInput,
+      description: hasMention ? `Note with mention` : `Note added`,
       timestamp: new Date().toISOString(),
       performedBy: currentUser.name,
-      details: 'Note added manually'
+      details: noteInput
     };
 
     addActivity(lead.id, activity);
     setNoteInput('');
   };
+
+  const filteredActivities = lead.activities.filter(act => {
+    if (timelineFilter === 'all') return true;
+    if (timelineFilter === 'communication') return ['email', 'call', 'meeting', 'note'].includes(act.type);
+    if (timelineFilter === 'system') return ['stage_change', 'task', 'alert', 'merge'].includes(act.type);
+    return true;
+  });
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -46,6 +80,8 @@ const LeadDetail: React.FC<LeadDetailProps> = ({ lead, onBack }) => {
       case 'email': return <Mail size={14} className="text-green-500" />;
       case 'meeting': return <Calendar size={14} className="text-purple-500" />;
       case 'stage_change': return <LayoutTemplate size={14} className="text-indigo-500" />;
+      case 'alert': return <AlertTriangle size={14} className="text-red-500" />;
+      case 'merge': return <GitMerge size={14} className="text-orange-500" />;
       default: return <MessageSquare size={14} className="text-slate-500" />;
     }
   };
@@ -75,6 +111,12 @@ const LeadDetail: React.FC<LeadDetailProps> = ({ lead, onBack }) => {
                      <button onClick={() => toggleLeadFollow(lead.id)} className="focus:outline-none">
                         <Star size={18} className={`transition-colors ${lead.isFollowed ? 'fill-yellow-400 text-yellow-400' : 'text-slate-300 hover:text-yellow-400'}`} />
                      </button>
+                     {/* Module 3: SLA Status Indicator */}
+                     {lead.slaStatus === 'breached' && (
+                       <span className="flex items-center gap-1 text-[10px] bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-bold border border-red-200 dark:border-red-800">
+                         <Clock size={10} /> SLA Breached
+                       </span>
+                     )}
                   </h1>
                   <div className="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
                      <span className="flex items-center gap-1"><Building2 size={14} /> {lead.company}</span>
@@ -101,8 +143,14 @@ const LeadDetail: React.FC<LeadDetailProps> = ({ lead, onBack }) => {
           </div>
         </div>
 
-        {/* Stage Path */}
-        <div className="px-6 pb-4 overflow-x-auto">
+        {/* Module 5: Dynamic Stage Path */}
+        <div className="px-6 pb-4 overflow-x-auto relative">
+           {stageError && (
+             <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-full bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm z-50 flex items-center gap-2 animate-in slide-in-from-bottom-2">
+               <AlertCircle size={16} />
+               <span>Cannot move stage. Missing: {stageError.join(', ')}</span>
+             </div>
+           )}
            <div className="flex items-center min-w-max">
               {PIPELINE_STAGES.map((stage, idx) => {
                  const currentIdx = getCurrentStageIndex();
@@ -111,21 +159,42 @@ const LeadDetail: React.FC<LeadDetailProps> = ({ lead, onBack }) => {
                  
                  return (
                     <div key={stage.id} className="flex items-center group">
-                       <div className={`
-                          flex items-center px-4 py-2 rounded-r-full relative
+                       <button 
+                          onClick={() => handleStageClick(stage.id as any)}
+                          className={`
+                          flex items-center px-4 py-2 rounded-r-full relative outline-none
                           ${idx === 0 ? 'rounded-l-full' : '-ml-4 pl-8'}
-                          ${isCurrent ? 'bg-indigo-600 z-10 text-white shadow-md' : isCompleted ? 'bg-green-600 text-white z-0' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 z-0'}
-                          border-r-2 border-white dark:border-slate-900 transition-colors
+                          ${isCurrent ? 'bg-indigo-600 z-10 text-white shadow-md' : isCompleted ? 'bg-green-600 text-white z-0 hover:bg-green-700' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 z-0 hover:bg-slate-200 dark:hover:bg-slate-700'}
+                          border-r-2 border-white dark:border-slate-900 transition-colors cursor-pointer
                        `}>
                           <span className="text-xs font-bold whitespace-nowrap">{stage.name}</span>
                           {isCompleted && <Check size={12} className="ml-2" />}
-                       </div>
+                       </button>
                     </div>
                  );
               })}
            </div>
         </div>
       </div>
+
+      {/* Module 4: Duplicate Warning Banner */}
+      {duplicates.length > 0 && (
+        <div className="bg-orange-50 dark:bg-orange-900/20 border-b border-orange-200 dark:border-orange-800 px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+             <AlertTriangle className="text-orange-600 dark:text-orange-400" size={20} />
+             <div>
+                <p className="text-sm font-bold text-orange-800 dark:text-orange-300">Potential Duplicates Detected</p>
+                <p className="text-xs text-orange-700 dark:text-orange-400">We found {duplicates.length} other record(s) similar to this lead.</p>
+             </div>
+          </div>
+          <button 
+             onClick={() => setShowMergeModal(true)}
+             className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 text-xs font-bold rounded shadow-sm hover:bg-orange-50 dark:hover:bg-slate-700"
+          >
+             Review & Merge
+          </button>
+        </div>
+      )}
 
       {/* 2. Main Body */}
       <div className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -256,7 +325,7 @@ const LeadDetail: React.FC<LeadDetailProps> = ({ lead, onBack }) => {
                            </div>
                            <textarea 
                               className="w-full p-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
-                              placeholder="Add a note, meeting details, or call summary..."
+                              placeholder="Add a note (use @ to mention)..."
                               rows={3}
                               value={noteInput}
                               onChange={(e) => setNoteInput(e.target.value)}
@@ -271,19 +340,30 @@ const LeadDetail: React.FC<LeadDetailProps> = ({ lead, onBack }) => {
                            </div>
                         </div>
 
+                        {/* Module 6: Unified Timeline Controls */}
+                        <div className="flex justify-between items-center">
+                          <h3 className="text-sm font-bold text-slate-800 dark:text-white">Timeline</h3>
+                          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+                             <button onClick={() => setTimelineFilter('all')} className={`px-3 py-1 text-xs rounded-md ${timelineFilter === 'all' ? 'bg-white dark:bg-slate-700 shadow-sm' : 'text-slate-500'}`}>All</button>
+                             <button onClick={() => setTimelineFilter('communication')} className={`px-3 py-1 text-xs rounded-md ${timelineFilter === 'communication' ? 'bg-white dark:bg-slate-700 shadow-sm' : 'text-slate-500'}`}>Comm</button>
+                             <button onClick={() => setTimelineFilter('system')} className={`px-3 py-1 text-xs rounded-md ${timelineFilter === 'system' ? 'bg-white dark:bg-slate-700 shadow-sm' : 'text-slate-500'}`}>System</button>
+                          </div>
+                        </div>
+
                         {/* Timeline */}
                         <div className="relative border-l-2 border-slate-200 dark:border-slate-800 ml-4 space-y-8 pb-4">
-                           {lead.activities.map((activity, idx) => (
+                           {filteredActivities.length === 0 && <div className="pl-8 text-sm text-slate-400">No activities match filter.</div>}
+                           {filteredActivities.map((activity, idx) => (
                               <div key={activity.id} className="relative pl-8 animate-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: `${idx * 50}ms` }}>
-                                 <div className="absolute -left-[9px] top-0 bg-white dark:bg-slate-900 p-1 rounded-full border border-slate-200 dark:border-slate-800">
+                                 <div className={`absolute -left-[9px] top-0 p-1 rounded-full border border-slate-200 dark:border-slate-800 ${activity.isMilestone ? 'bg-indigo-100 dark:bg-indigo-900' : 'bg-white dark:bg-slate-900'}`}>
                                     {getActivityIcon(activity.type)}
                                  </div>
-                                 <div className="bg-white dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-800/50 hover:border-slate-200 dark:hover:border-slate-700 transition-colors">
+                                 <div className={`bg-white dark:bg-slate-800/50 p-3 rounded-lg border hover:border-slate-200 dark:hover:border-slate-700 transition-colors ${activity.isMilestone ? 'border-indigo-200 dark:border-indigo-800 shadow-sm' : 'border-slate-100 dark:border-slate-800/50'}`}>
                                     <div className="flex items-center justify-between mb-1">
-                                       <span className="font-semibold text-sm text-slate-800 dark:text-slate-200">{activity.description}</span>
+                                       <span className={`font-semibold text-sm ${activity.isMilestone ? 'text-indigo-800 dark:text-indigo-300' : 'text-slate-800 dark:text-slate-200'}`}>{activity.description}</span>
                                        <span className="text-xs text-slate-400">{new Date(activity.timestamp).toLocaleString()}</span>
                                     </div>
-                                    <p className="text-sm text-slate-600 dark:text-slate-400">{activity.details || `Performed by ${activity.performedBy}`}</p>
+                                    <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-line">{activity.details || `Performed by ${activity.performedBy}`}</p>
                                  </div>
                               </div>
                            ))}
@@ -295,7 +375,7 @@ const LeadDetail: React.FC<LeadDetailProps> = ({ lead, onBack }) => {
                      <div className="space-y-4 animate-in fade-in duration-300">
                         <div className="flex items-center gap-2 mb-4">
                            <PlayCircle className="text-indigo-600 dark:text-indigo-400" size={20} />
-                           <h3 className="font-bold text-slate-800 dark:text-white">Active Rules</h3>
+                           <h3 className="font-bold text-slate-800 dark:text-white">Active Automations</h3>
                         </div>
                         <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-900 rounded-lg flex items-start gap-3">
                            <CheckCircle2 size={20} className="text-emerald-600 dark:text-emerald-400 mt-0.5" />
@@ -308,14 +388,19 @@ const LeadDetail: React.FC<LeadDetailProps> = ({ lead, onBack }) => {
                               <p className="text-[10px] text-emerald-600 dark:text-emerald-500 mt-2">Triggered 2 days ago</p>
                            </div>
                         </div>
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg flex items-start gap-3">
-                           <Clock size={20} className="text-slate-400 mt-0.5" />
+                        {/* SLA Info */}
+                        <div className={`p-4 rounded-lg flex items-start gap-3 border ${lead.slaStatus === 'breached' ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-900' : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}>
+                           <Clock size={20} className={`mt-0.5 ${lead.slaStatus === 'breached' ? 'text-red-500' : 'text-slate-400'}`} />
                            <div>
                               <div className="flex items-center gap-2">
-                                 <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">Stale Lead Watch</h4>
+                                 <h4 className={`text-sm font-bold ${lead.slaStatus === 'breached' ? 'text-red-900 dark:text-red-300' : 'text-slate-700 dark:text-slate-300'}`}>SLA Monitor</h4>
                                  <span className="text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 px-1.5 py-0.5 rounded">Monitoring</span>
                               </div>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Will notify manager if inactive for > 7 days.</p>
+                              <p className={`text-xs mt-1 ${lead.slaStatus === 'breached' ? 'text-red-700 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                                 {lead.slaStatus === 'breached' 
+                                   ? 'Max time in stage exceeded. Manager notified.' 
+                                   : 'Monitoring time in stage. No breaches.'}
+                              </p>
                            </div>
                         </div>
                      </div>
@@ -386,6 +471,57 @@ const LeadDetail: React.FC<LeadDetailProps> = ({ lead, onBack }) => {
             </div>
          </div>
       </div>
+
+      {/* Module 4: Merge Modal */}
+      {showMergeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white">Merge Records</h3>
+              <button onClick={() => setShowMergeModal(false)} className="text-slate-400"><ArrowLeft size={20} /></button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              <div className="grid grid-cols-2 gap-6">
+                {/* Current Record */}
+                <div className="border-2 border-indigo-500 rounded-xl p-4 relative bg-indigo-50/10">
+                  <div className="absolute top-0 left-0 bg-indigo-500 text-white text-xs font-bold px-3 py-1 rounded-br-lg">Master Record</div>
+                  <h4 className="font-bold text-lg mt-6">{lead.company}</h4>
+                  <div className="space-y-2 mt-4 text-sm text-slate-600 dark:text-slate-300">
+                    <p>Name: {lead.firstName} {lead.lastName}</p>
+                    <p>Email: {lead.email}</p>
+                    <p>ID: {lead.id}</p>
+                  </div>
+                </div>
+                {/* Duplicate Record */}
+                <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-4 bg-slate-50 dark:bg-slate-900">
+                   <h4 className="font-bold text-lg mt-6">{duplicates[0]?.company}</h4>
+                   <div className="space-y-2 mt-4 text-sm text-slate-600 dark:text-slate-300">
+                    <p>Name: {duplicates[0]?.firstName} {duplicates[0]?.lastName}</p>
+                    <p>Email: {duplicates[0]?.email}</p>
+                    <p>ID: {duplicates[0]?.id}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg text-sm">
+                Merging will move all activities and notes from the duplicate record to the master record. The duplicate record will be deleted.
+              </div>
+            </div>
+            <div className="p-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end gap-3">
+              <button onClick={() => setShowMergeModal(false)} className="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
+              <button 
+                onClick={() => {
+                  mergeLeads(lead.id, duplicates[0].id);
+                  setShowMergeModal(false);
+                  onBack(); // Go back to list as this record is updated
+                }}
+                className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+              >
+                Confirm Merge
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

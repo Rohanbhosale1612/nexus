@@ -7,6 +7,9 @@ export interface User {
   role: Role;
   avatar: string;
   email: string;
+  capacity?: number; // For workload balancing
+  activeLeads?: number;
+  skills?: string[]; // For skills-based routing
 }
 
 export type LeadStatus = 'New' | 'Contacted' | 'Qualified' | 'Proposal' | 'Negotiation' | 'Closed Won' | 'Closed Lost';
@@ -20,11 +23,12 @@ export interface Note {
 
 export interface Activity {
   id: string;
-  type: 'call' | 'email' | 'meeting' | 'note' | 'stage_change' | 'task';
+  type: 'call' | 'email' | 'meeting' | 'note' | 'stage_change' | 'task' | 'alert' | 'merge';
   description: string;
   timestamp: string;
   performedBy: string;
   details?: string;
+  isMilestone?: boolean; // For unified timeline highlights
 }
 
 export interface CustomField {
@@ -61,6 +65,8 @@ export interface Lead {
     country: string;
   };
   isFollowed?: boolean;
+  slaStatus?: 'ok' | 'warning' | 'breached';
+  slaBreachTime?: string;
 }
 
 export interface Task {
@@ -79,12 +85,13 @@ export interface PipelineStage {
   name: string;
   color: string;
   order: number;
+  exitCriteria?: string[]; // Field IDs required to leave this stage
 }
 
 export const PIPELINE_STAGES: PipelineStage[] = [
-  { id: 'New', name: 'New Lead', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200', order: 1 },
-  { id: 'Contacted', name: 'Contacted', color: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200', order: 2 },
-  { id: 'Qualified', name: 'Qualified', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-200', order: 3 },
+  { id: 'New', name: 'New Lead', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200', order: 1, exitCriteria: ['email', 'phone'] },
+  { id: 'Contacted', name: 'Contacted', color: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200', order: 2, exitCriteria: ['company'] },
+  { id: 'Qualified', name: 'Qualified', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-200', order: 3, exitCriteria: ['potentialValue'] },
   { id: 'Proposal', name: 'Proposal', color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200', order: 4 },
   { id: 'Negotiation', name: 'Negotiation', color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-200', order: 5 },
   { id: 'Closed Won', name: 'Closed Won', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200', order: 6 },
@@ -108,4 +115,23 @@ export interface Rule {
   lastModified: string;
   version: number;
   conditionsJson: string;
+  type?: 'automation' | 'routing' | 'sla';
+}
+
+// Module 3: Escalation / SLA
+export interface SLAConfig {
+  id: string;
+  name: string;
+  stage: LeadStatus;
+  maxTimeInStageHours: number;
+  action: 'notify_manager' | 'reassign_pool';
+}
+
+// Module 2: Routing
+export interface RoutingRule {
+  id: string;
+  name: string;
+  strategy: 'round_robin' | 'territory' | 'skills' | 'value';
+  criteria?: Record<string, any>;
+  targetTeam?: string[]; // User IDs
 }

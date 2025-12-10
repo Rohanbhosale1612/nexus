@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PIPELINE_STAGES } from '../types';
-import { ToggleLeft, ToggleRight, Layout, Shield, GripVertical, Plus } from 'lucide-react';
+import { ToggleLeft, ToggleRight, Layout, Shield, GripVertical, Plus, Route, Clock, CheckSquare } from 'lucide-react';
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState('pipeline');
@@ -18,8 +18,10 @@ const Settings = () => {
             <nav className="flex flex-col">
                {[
                   { id: 'pipeline', label: 'Pipeline & Stages', icon: Layout },
+                  { id: 'routing', label: 'Lead Routing', icon: Route },
+                  { id: 'sla', label: 'SLA & Escalation', icon: Clock },
+                  { id: 'validation', label: 'Stage Gates', icon: CheckSquare },
                   { id: 'roles', label: 'Roles & Permissions', icon: Shield },
-                  { id: 'fields', label: 'Custom Fields', icon: ToggleLeft },
                ].map(item => (
                   <button
                      key={item.id}
@@ -69,6 +71,66 @@ const Settings = () => {
                </div>
             )}
 
+            {activeTab === 'routing' && (
+               <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+                 <h2 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Smart Lead Routing</h2>
+                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Configure how leads are assigned to team members.</p>
+                 
+                 <div className="space-y-4">
+                   <div className="p-4 border border-slate-200 dark:border-slate-700 rounded-xl">
+                      <div className="flex justify-between items-start">
+                         <div>
+                            <h3 className="font-bold text-slate-800 dark:text-white">Enterprise Round Robin</h3>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Distributes leads with Value > 10k to Senior Reps.</p>
+                         </div>
+                         <span className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-bold px-2 py-1 rounded">Active</span>
+                      </div>
+                   </div>
+                   <button className="w-full py-2 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-slate-500 dark:text-slate-400 font-medium hover:border-indigo-500 hover:text-indigo-500 transition-colors">
+                      + Add Routing Rule
+                   </button>
+                 </div>
+               </div>
+            )}
+
+            {activeTab === 'sla' && (
+               <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+                 <h2 className="text-lg font-bold text-slate-800 dark:text-white mb-4">SLA & Escalation Policies</h2>
+                 <div className="space-y-4">
+                    <div className="p-4 border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/10 rounded-xl">
+                       <div className="flex items-center gap-2 mb-2">
+                          <Clock size={16} className="text-red-500" />
+                          <h3 className="font-bold text-red-900 dark:text-red-300">New Lead Response Time</h3>
+                       </div>
+                       <p className="text-sm text-red-800 dark:text-red-200">Warn if Status is 'New' for > 24 hours. Escalate to Manager.</p>
+                    </div>
+                 </div>
+               </div>
+            )}
+
+            {activeTab === 'validation' && (
+               <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+                 <h2 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Stage Gate Requirements</h2>
+                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Define mandatory fields required to move leads between stages.</p>
+                 
+                 <div className="space-y-3">
+                    {stages.map(stage => (
+                      <div key={stage.id} className="flex items-center justify-between p-3 border-b border-slate-100 dark:border-slate-800">
+                         <span className="font-medium text-slate-800 dark:text-slate-200">{stage.name}</span>
+                         <div className="flex gap-2">
+                            {stage.exitCriteria?.map(field => (
+                               <span key={field} className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400">
+                                  Required: {field}
+                               </span>
+                            ))}
+                            {!stage.exitCriteria && <span className="text-xs text-slate-400 italic">No requirements</span>}
+                         </div>
+                      </div>
+                    ))}
+                 </div>
+               </div>
+            )}
+
             {activeTab === 'roles' && (
                <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
                   <h2 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Role Access Matrix</h2>
@@ -100,17 +162,6 @@ const Settings = () => {
                         </tbody>
                      </table>
                   </div>
-               </div>
-            )}
-            
-            {activeTab === 'fields' && (
-               <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 flex flex-col items-center justify-center min-h-[300px] text-center">
-                  <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                     <Layout className="text-slate-400 dark:text-slate-500" size={32} />
-                  </div>
-                  <h3 className="font-bold text-slate-800 dark:text-white">Custom Fields</h3>
-                  <p className="text-slate-500 dark:text-slate-400 max-w-sm mt-2">Create custom fields to capture unique business data on your Lead records.</p>
-                  <button className="mt-6 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium transition-colors">Create Field</button>
                </div>
             )}
          </div>

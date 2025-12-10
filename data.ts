@@ -1,4 +1,4 @@
-import { Lead, Task, User, LeadStatus, PIPELINE_STAGES, Notification, Rule } from './types';
+import { Lead, Task, User, LeadStatus, PIPELINE_STAGES, Notification, Rule, SLAConfig, RoutingRule } from './types';
 
 const FIRST_NAMES = ['James', 'Mary', 'Robert', 'Patricia', 'John', 'Jennifer', 'Michael', 'Linda', 'David', 'Elizabeth'];
 const LAST_NAMES = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'];
@@ -7,10 +7,10 @@ const SOURCES = ['Website', 'Referral', 'LinkedIn', 'Cold Call', 'Conference', '
 const POSITIONS = ['CEO', 'CTO', 'VP Sales', 'Director', 'Manager', 'Developer'];
 
 export const MOCK_USERS: User[] = [
-  { id: 'u1', name: 'Alice Johnson', role: 'Admin', email: 'alice@nexus.com', avatar: 'https://ui-avatars.com/api/?name=Alice+Johnson&background=6366f1&color=fff' },
-  { id: 'u2', name: 'Bob Smith', role: 'Sales Rep', email: 'bob@nexus.com', avatar: 'https://ui-avatars.com/api/?name=Bob+Smith&background=22c55e&color=fff' },
-  { id: 'u3', name: 'Charlie Davis', role: 'Sales Rep', email: 'charlie@nexus.com', avatar: 'https://ui-avatars.com/api/?name=Charlie+Davis&background=eab308&color=fff' },
-  { id: 'u4', name: 'Diana Prince', role: 'Manager', email: 'diana@nexus.com', avatar: 'https://ui-avatars.com/api/?name=Diana+Prince&background=ec4899&color=fff' },
+  { id: 'u1', name: 'Alice Johnson', role: 'Admin', email: 'alice@nexus.com', avatar: 'https://ui-avatars.com/api/?name=Alice+Johnson&background=6366f1&color=fff', skills: ['Enterprise', 'Tech'] },
+  { id: 'u2', name: 'Bob Smith', role: 'Sales Rep', email: 'bob@nexus.com', avatar: 'https://ui-avatars.com/api/?name=Bob+Smith&background=22c55e&color=fff', skills: ['SMB', 'Retail'] },
+  { id: 'u3', name: 'Charlie Davis', role: 'Sales Rep', email: 'charlie@nexus.com', avatar: 'https://ui-avatars.com/api/?name=Charlie+Davis&background=eab308&color=fff', skills: ['Tech'] },
+  { id: 'u4', name: 'Diana Prince', role: 'Manager', email: 'diana@nexus.com', avatar: 'https://ui-avatars.com/api/?name=Diana+Prince&background=ec4899&color=fff', skills: ['Enterprise', 'Management'] },
 ];
 
 function getRandomItem<T>(arr: T[]): T {
@@ -22,7 +22,7 @@ function randomDate(start: Date, end: Date) {
 }
 
 export const generateLeads = (count: number): Lead[] => {
-  return Array.from({ length: count }).map((_, i) => {
+  const leads = Array.from({ length: count }).map((_, i) => {
     const firstName = getRandomItem(FIRST_NAMES);
     const lastName = getRandomItem(LAST_NAMES);
     const status = getRandomItem(PIPELINE_STAGES).id as LeadStatus;
@@ -50,7 +50,8 @@ export const generateLeads = (count: number): Lead[] => {
           type: 'stage_change',
           description: `Moved to ${status}`,
           timestamp: new Date().toISOString(),
-          performedBy: 'System'
+          performedBy: 'System',
+          isMilestone: true
         }
       ],
       customFields: {},
@@ -61,9 +62,27 @@ export const generateLeads = (count: number): Lead[] => {
         zip: '94000',
         country: 'USA'
       },
-      isFollowed: Math.random() > 0.8
-    };
+      isFollowed: Math.random() > 0.8,
+      slaStatus: 'ok'
+    } as Lead;
   });
+
+  // Inject a purposeful duplicate for testing Module 4
+  const original = leads[0];
+  const duplicate: Lead = {
+    ...original,
+    id: `lead-duplicate`,
+    firstName: original.firstName, // Exact match
+    lastName: original.lastName,
+    email: original.email, // Exact match
+    company: original.company + " Inc", // Fuzzy match
+    status: 'New',
+    activities: [],
+    score: 15
+  };
+  leads.push(duplicate);
+
+  return leads;
 };
 
 export const generateTasks = (leads: Lead[]): Task[] => {
@@ -97,8 +116,8 @@ export const generateNotifications = (): Notification[] => [
   },
   {
     id: 'n3',
-    title: 'High Value Alert',
-    message: 'Stark Ind deal value increased to $50,000',
+    title: 'SLA Breach Warning',
+    message: 'Lead "Stark Ind" has been in Negotiation for 5 days.',
     read: false,
     timestamp: new Date(Date.now() - 7200000).toISOString(),
     type: 'alert'
@@ -113,7 +132,8 @@ export const MOCK_RULES: Rule[] = [
     description: 'Assign leads with value > 10k to Senior Reps',
     version: 1,
     lastModified: new Date().toISOString(),
-    conditionsJson: '{"condition": "AND", "rules": [{"field": "potentialValue", "operator": "greater", "value": 10000}]}'
+    conditionsJson: '{"condition": "AND", "rules": [{"field": "potentialValue", "operator": "greater", "value": 10000}]}',
+    type: 'automation'
   },
   {
     id: 'r2',
@@ -122,6 +142,17 @@ export const MOCK_RULES: Rule[] = [
     description: 'Notify manager if lead is in "New" for > 3 days',
     version: 2,
     lastModified: new Date(Date.now() - 86400000).toISOString(),
-    conditionsJson: '{"condition": "AND", "rules": [{"field": "status", "operator": "equal", "value": "New"}, {"field": "daysInStage", "operator": "greater", "value": 3}]}'
+    conditionsJson: '{"condition": "AND", "rules": [{"field": "status", "operator": "equal", "value": "New"}, {"field": "daysInStage", "operator": "greater", "value": 3}]}',
+    type: 'sla'
   }
+];
+
+export const MOCK_SLAS: SLAConfig[] = [
+  { id: 'sla1', name: 'New Lead Response', stage: 'New', maxTimeInStageHours: 24, action: 'notify_manager' },
+  { id: 'sla2', name: 'Proposal Stagnation', stage: 'Proposal', maxTimeInStageHours: 72, action: 'reassign_pool' }
+];
+
+export const MOCK_ROUTING: RoutingRule[] = [
+  { id: 'rr1', name: 'Enterprise Round Robin', strategy: 'round_robin', targetTeam: ['u1', 'u4'] },
+  { id: 'rr2', name: 'Tech Vertical Skills', strategy: 'skills', criteria: { tag: 'Tech' } }
 ];
